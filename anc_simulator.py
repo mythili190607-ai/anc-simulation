@@ -17,7 +17,13 @@ from collections import deque
 try:
     import sounddevice as sd
 except ImportError:
-    print("ERROR: Install required packages with: pip install numpy scipy sounddevice matplotlib")
+    print("WARNING: sounddevice not installed. Continuing without audio I/O support.")
+    sd = None
+
+try:
+    from scipy import signal as scipy_signal
+except ImportError:
+    print("ERROR: Install required packages with: pip install numpy scipy matplotlib")
     sys.exit(1)
 
 
@@ -184,7 +190,7 @@ class NoiseSimulator:
         """Chirp signal"""
         samples = int(duration_sec * self.samplerate)
         t = np.arange(samples) / self.samplerate
-        return 0.1 * signal.chirp(t, f0=100, f1=500, t1=duration_sec)
+        return 0.1 * scipy_signal.chirp(t, f0=100, f1=500, t1=duration_sec)
 
     def generate_impulsive(self, duration_sec):
         """Random impulses"""
@@ -292,7 +298,7 @@ def build_arg_parser():
     p.add_argument("--duration", type=float, default=10.0, help="Simulation duration in seconds")
     p.add_argument("--noise-type", type=str, default="mix", choices=["stationary", "nonstationary", "impulsive", "mix"])
     p.add_argument("--enable-display", action="store_true", help="Enable real-time display")
-    p.add_argument("--save-plot", type=str, default=None, help="Save output plot to file")
+    p.add_argument("--save-plot", type=str, default="anc_output.png", help="Save output plot to file")
     return p
 
 
@@ -339,6 +345,7 @@ def main():
     noise_sim = NoiseSimulator(args.samplerate)
 
     # Generate reference and error signals
+    print(f"[Simulator] Generating {args.noise_type} noise...")
     if args.noise_type == "stationary":
         reference = noise_sim.generate_stationary(args.duration)
     elif args.noise_type == "nonstationary":
@@ -371,9 +378,6 @@ def main():
         block_err = measured_error[i:end_idx]
 
         classifier.submit(block_ref)
-
-        anti_signals = []
-        errors = []
 
         for j, sample_ref in enumerate(block_ref):
             if i + j < end_idx:
@@ -422,23 +426,24 @@ def main():
 
     # Plot results
     if args.save_plot:
+        print(f"\n[Plot] Generating visualization...")
         fig, axes = plt.subplots(3, 1, figsize=(14, 10))
 
         t = np.arange(len(reference)) / args.samplerate
-        axes[0].plot(t, reference, label='Reference', alpha=0.7)
-        axes[0].plot(t, measured_error, label='Measured Error', alpha=0.7)
+        axes[0].plot(t, reference, label='Reference', alpha=0.7, color='blue')
+        axes[0].plot(t, measured_error, label='Measured Error', alpha=0.7, color='orange')
         axes[0].set_ylabel('Amplitude')
         axes[0].set_title('Input Signals')
         axes[0].legend()
         axes[0].grid()
 
-        axes[1].plot(t, output_signal, label='Anti-Noise Output', alpha=0.7)
+        axes[1].plot(t, output_signal, label='Anti-Noise Output', alpha=0.7, color='green')
         axes[1].set_ylabel('Amplitude')
         axes[1].set_title('Generated Anti-Noise')
         axes[1].legend()
         axes[1].grid()
 
-        axes[2].plot(t, error_signal, label='Residual Error', alpha=0.7)
+        axes[2].plot(t, error_signal, label='Residual Error', alpha=0.7, color='red')
         axes[2].set_ylabel('Amplitude')
         axes[2].set_xlabel('Time (s)')
         axes[2].set_title('Residual Error After ANC')
@@ -446,9 +451,9 @@ def main():
         axes[2].grid()
 
         plt.tight_layout()
-        plt.savefig(args.save_plot, dpi=150)
+        plt.savefig(args.save_plot, dpi=150, bbox_inches='tight')
         print(f"[Plot] Saved to {args.save_plot}")
-        plt.show()
+        plt.close()
 
 
 if __name__ == "__main__":
